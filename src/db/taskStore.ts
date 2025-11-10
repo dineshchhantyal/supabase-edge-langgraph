@@ -1,7 +1,7 @@
 // src/db/taskStore.ts
-import { promises as fs } from "fs";
-import { randomUUID } from "crypto";
-import path from "path";
+import * as fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import * as path from "node:path";
 
 export type TaskStatus = "pending" | "done";
 

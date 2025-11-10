@@ -4,7 +4,11 @@ import { TavilySearchResults } from "@langchain/community/tools/tavily_search";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
-const hasTavily = Boolean(process.env.TAVILY_API_KEY);
+const tavilyKey =
+  (globalThis as Record<string, any>)?.Deno?.env?.get?.("TAVILY_API_KEY") ??
+  (typeof process !== "undefined" ? process.env?.TAVILY_API_KEY : undefined);
+
+const hasTavily = Boolean(tavilyKey);
 
 const webTools = hasTavily
   ? [

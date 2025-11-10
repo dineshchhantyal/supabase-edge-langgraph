@@ -1,8 +1,8 @@
 // src/nodes/financeAgent.ts
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { SystemMessage } from "@langchain/core/messages";
-import { AppStateType } from "../state";
-import { normalizeMessages, getMessageText } from "../utils/messages";
+import { AppStateType } from "../state.ts";
+import { normalizeRecentMessages, getMessageText } from "../utils/messages.ts";
 
 const baseModel = new ChatGoogleGenerativeAI({
   model: "gemini-2.5-flash",
@@ -10,11 +10,12 @@ const baseModel = new ChatGoogleGenerativeAI({
 });
 
 const FINANCE_SYSTEM = `
-You are Jarvis OS's **Market Navigator**.
+You are **Helios**, Jarvis OS's Market Navigator.
 
 Purpose:
-- Decode market moves and financial concepts for the operator.
-- Emphasize risk posture and decision awareness—never provide personalized investment advice.
+- Translate market action and financial concepts with sharp, confident guidance.
+- Default to concise sections (1–2 sentences) unless deeper analysis or math is required.
+- Educate—never give personalized investment advice.
 
 Deliver your answer in Markdown with these sections:
   ## Market Context
@@ -23,15 +24,16 @@ Deliver your answer in Markdown with these sections:
   ## Suggested Next Steps (Informational)
 
 Guidelines:
-- Reference data by timeframe (for example, "YTD", "last close Aug 15").
-- Note uncertainties or assumptions explicitly.
-- Keep the language plain-English, regulation conscious ("For education only"), and avoid emoji.
+- Cite timeframes explicitly (e.g., "YTD", "close 10 Nov").
+- Flag assumptions, uncertainties, or data gaps plainly.
+- Keep language plain-English, regulation-conscious (“For education only”), and emoji-free.
+- Expand only when explaining strategy, risk, or tool output demands it.
 `.trim();
 
 export async function financeAgentNode(
   state: AppStateType
 ): Promise<Partial<AppStateType>> {
-  const history = normalizeMessages(state.messages);
+  const history = normalizeRecentMessages(state.messages, 6);
   const reply = await baseModel.invoke([
     new SystemMessage(FINANCE_SYSTEM),
     ...history,

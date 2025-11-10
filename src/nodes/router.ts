@@ -1,11 +1,11 @@
 // src/nodes/router.ts
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { AppStateType, AgentValue } from "../state";
-import { normalizeMessages, contentToText } from "../utils/messages";
+import { AppStateType, AgentValue } from "../state.ts";
+import { normalizeRecentMessages, contentToText } from "../utils/messages.ts";
 
 const routerModel = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
+  model: "gemini-1.5-flash",
   temperature: 0,
 });
 
@@ -16,21 +16,24 @@ Analyze the latest human request and produce the optimal ordered set of agents t
 
 Return **only** a JSON array of agent ids, for example: ["todo", "web"].
 
-Agent roster:
-- "todo": Task Orchestrator — restructure and synchronize task lists.
-- "web": Sentinel Analyst — fetch current market/news intel with sources.
-- "notes": Knowledge Synthesizer — distill conversations into briefings.
-- "finance": Market Navigator — explain market moves with risk framing.
+ Agent roster:
+ - "core": Nova — answer directly with a concise conversational reply.
+ - "todo": Task Orchestrator — manage and clarify task lists.
+ - "web": Sentinel Analyst — fetch current market/news intel with citations.
+- "notes": Knowledge Synthesizer — summarize or document conversations.
+- "finance": Market Navigator — interpret market moves and financial concepts.
 
-Routing heuristics:
-- Capture all distinct intents. If the user blends planning + market info, include both "todo" and the relevant intel agent.
-- Prefer "web" when the user requests current data or verification; pair with "finance" when interpretation or education is needed.
-- If the user is only clarifying or journaling, route to "notes".
-- Default fallback: ["notes"].
-- Avoid duplicates unless the user explicitly asks to revisit the same domain.
+Routing guidance:
+- Include every capability the user clearly requests; maintain order of operations.
+- Use "web" whenever the user needs current data, verification, or live info.
+- Pair "finance" with "web" if analysis depends on fresh market data.
+- Use "todo" for planning, follow-ups, reminders, or task changes.
+- Use "notes" for recaps, summaries, or documentation requests.
+- Default fallback: ["core"].
+- Avoid duplicates unless the user insists on revisiting the same agent.
 `.trim();
 
-const ALL_AGENTS: AgentValue[] = ["todo", "web", "notes", "finance"];
+const ALL_AGENTS: AgentValue[] = ["core", "todo", "web", "notes", "finance"];
 
 function sanitizeAgentList(value: unknown): AgentValue[] {
   if (!Array.isArray(value)) {
@@ -84,11 +87,11 @@ function parsePlan(text: string): AgentValue[] {
   if (inferred.length > 0) {
     return inferred;
   }
-  return ["notes"];
+  return ["core"];
 }
 
 function getLastHumanMessage(
-  messages: ReturnType<typeof normalizeMessages>
+  messages: ReturnType<typeof normalizeRecentMessages>
 ): { index: number; message: any } | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const candidate = messages[i];
@@ -106,7 +109,7 @@ function getLastHumanMessage(
 export async function routerNode(
   state: AppStateType
 ): Promise<Partial<AppStateType>> {
-  const messages = normalizeMessages(state.messages);
+  const messages = normalizeRecentMessages(state.messages, 6);
   const queue = sanitizeAgentList(state.pending_agents);
 
   if (queue.length > 0) {
@@ -142,7 +145,7 @@ export async function routerNode(
   ]);
 
   const plan = parsePlan(contentToText(reply.content));
-  const effectivePlan: AgentValue[] = plan.length > 0 ? plan : ["notes"];
+  const effectivePlan: AgentValue[] = plan.length > 0 ? plan : ["core"];
   const [next, ...rest] = effectivePlan;
 
   return {

@@ -1,15 +1,21 @@
 // src/run_moe.ts
-import "dotenv/config";
-import { HumanMessage } from "@langchain/core/messages";
-import { moeGraph } from "./graph_moe";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { moeGraph } from "./graph_moe.ts";
+import { getSystemPrompt } from "./prompt.ts";
 
 async function main() {
   const userInput =
     process.argv.slice(2).join(" ") ||
     "Please create todos for my study plan and explain index fund risk.";
 
+  const systemPrompt = getSystemPrompt?.();
+  const messages = [
+    ...(systemPrompt ? [new SystemMessage(systemPrompt)] : []),
+    new HumanMessage(userInput),
+  ];
+
   const finalState = await moeGraph.invoke({
-    messages: [new HumanMessage(userInput)],
+    messages,
     goal: "Assist across todos, notes, web research, and finance.",
   });
 

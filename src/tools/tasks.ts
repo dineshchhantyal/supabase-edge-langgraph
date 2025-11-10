@@ -9,18 +9,28 @@ import {
   listTasks,
   summarizeTasks,
   updateTask,
-} from "../db/taskStore";
+} from "../db/taskStore.ts";
+
+function taskErrorMessage(action: string, err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(`tasks::${action} failed`, err);
+  return `Task storage is currently unavailable (${action}): ${message}`;
+}
 
 const listTasksTool = tool(async ({ include_internal_ids }) => {
-  const tasks = await listTasks();
-  const summary = summarizeTasks(tasks);
-  if (include_internal_ids && tasks.length > 0) {
-    const idMap = tasks
-      .map((task) => `- ${task.title} -> ${task.id}`)
-      .join("\n");
-    return `${summary}\n\nInternal IDs:\n${idMap}`;
+  try {
+    const tasks = await listTasks();
+    const summary = summarizeTasks(tasks);
+    if (include_internal_ids && tasks.length > 0) {
+      const idMap = tasks
+        .map((task) => `- ${task.title} -> ${task.id}`)
+        .join("\n");
+      return `${summary}\n\nInternal IDs:\n${idMap}`;
+    }
+    return summary;
+  } catch (err) {
+    return taskErrorMessage("list", err);
   }
-  return summary;
 }, {
   name: "list_tasks",
   description: "List all stored tasks with their status and any due dates.",
@@ -31,12 +41,16 @@ const listTasksTool = tool(async ({ include_internal_ids }) => {
 
 const createTaskTool = tool(
   async ({ title, description, due_date }) => {
-    const created = await createTask({
-      title,
-      description: description ?? null,
-      dueDate: due_date ?? null,
-    });
-  return `Created task:\n${formatTask(created)}\n  id: ${created.id}`;
+    try {
+      const created = await createTask({
+        title,
+        description: description ?? null,
+        dueDate: due_date ?? null,
+      });
+      return `Created task:\n${formatTask(created)}\n  id: ${created.id}`;
+    } catch (err) {
+      return taskErrorMessage("create", err);
+    }
   },
   {
     name: "create_task",
@@ -51,14 +65,18 @@ const createTaskTool = tool(
 
 const updateTaskTool = tool(
   async ({ id, title, status, description, due_date }) => {
-    const updated = await updateTask({
-      id,
-      title: title ?? undefined,
-      status: status ?? undefined,
-      description: description ?? undefined,
-      dueDate: due_date ?? undefined,
-    });
-  return `Updated task:\n${formatTask(updated)}\n  id: ${updated.id}`;
+    try {
+      const updated = await updateTask({
+        id,
+        title: title ?? undefined,
+        status: status ?? undefined,
+        description: description ?? undefined,
+        dueDate: due_date ?? undefined,
+      });
+      return `Updated task:\n${formatTask(updated)}\n  id: ${updated.id}`;
+    } catch (err) {
+      return taskErrorMessage("update", err);
+    }
   },
   {
     name: "update_task",
@@ -75,8 +93,12 @@ const updateTaskTool = tool(
 
 const deleteTaskTool = tool(
   async ({ id }) => {
-    const removed = await deleteTask(id);
-  return `Deleted task:\n${formatTask(removed)}\n  id: ${removed.id}`;
+    try {
+      const removed = await deleteTask(id);
+      return `Deleted task:\n${formatTask(removed)}\n  id: ${removed.id}`;
+    } catch (err) {
+      return taskErrorMessage("delete", err);
+    }
   },
   {
     name: "delete_task",

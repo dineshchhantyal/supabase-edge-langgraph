@@ -137,3 +137,14 @@ export function normalizeMessages(
     return rebuildMessage(message, fallback);
   });
 }
+
+export function normalizeRecentMessages(
+  messages?: BaseMessage[] | null,
+  limit = 6
+): BaseMessage[] {
+  const normalized = normalizeMessages(messages);
+  if (limit == null || limit <= 0) {
+    return normalized;
+  }
+  return normalized.slice(-limit);
+}

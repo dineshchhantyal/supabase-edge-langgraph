@@ -1,17 +1,18 @@
 // src/graph_moe.ts
-import "dotenv/config";
 import { StateGraph, START, END } from "@langchain/langgraph";
-import { AppState, AppStateType } from "./state";
-import { routerNode } from "./nodes/router";
-import { todoAgentNode } from "./nodes/todoAgent";
-import { webAgentNode } from "./nodes/webAgent";
-import { notesAgentNode } from "./nodes/notesAgent";
-import { financeAgentNode } from "./nodes/financeAgent";
-import { todoToolNode } from "./tools/tasks";
-import { webToolNode } from "./tools/web";
+import { AppState, AppStateType } from "./state.ts";
+import { routerNode } from "./nodes/router.ts";
+import { coreAgentNode } from "./nodes/coreAgent.ts";
+import { todoAgentNode } from "./nodes/todoAgent.ts";
+import { webAgentNode } from "./nodes/webAgent.ts";
+import { notesAgentNode } from "./nodes/notesAgent.ts";
+import { financeAgentNode } from "./nodes/financeAgent.ts";
+import { todoToolNode } from "./tools/tasks.ts";
+import { webToolNode } from "./tools/web.ts";
 
 function routeFromRouter(state: AppStateType) {
   const agent = state.selected_agent;
+  if (agent === "core") return "core_agent";
   if (agent === "todo") return "todo_agent";
   if (agent === "web") return "web_agent";
   if (agent === "notes") return "notes_agent";
@@ -39,6 +40,7 @@ function webNextStep(state: AppStateType) {
 
 export const moeGraph = new StateGraph(AppState)
   .addNode("router", routerNode)
+  .addNode("core_agent", coreAgentNode)
   .addNode("todo_agent", todoAgentNode)
   .addNode("todo_tools", todoToolNode)
   .addNode("web_agent", webAgentNode)
@@ -47,6 +49,7 @@ export const moeGraph = new StateGraph(AppState)
   .addNode("finance_agent", financeAgentNode)
   .addEdge(START, "router")
   .addConditionalEdges("router", routeFromRouter, [
+    "core_agent",
     "todo_agent",
     "web_agent",
     "notes_agent",
@@ -63,6 +66,7 @@ export const moeGraph = new StateGraph(AppState)
   ])
   .addEdge("todo_tools", "todo_agent")
   .addEdge("web_tools", "web_agent")
+  .addEdge("core_agent", "router")
   .addEdge("notes_agent", "router")
   .addEdge("finance_agent", "router")
   .compile({

@@ -1,8 +1,8 @@
 // src/nodes/notesAgent.ts
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { SystemMessage } from "@langchain/core/messages";
-import { AppStateType } from "../state";
-import { normalizeMessages, getMessageText } from "../utils/messages";
+import { AppStateType } from "../state.ts";
+import { normalizeRecentMessages, getMessageText } from "../utils/messages.ts";
 
 const baseModel = new ChatGoogleGenerativeAI({
   model: "gemini-2.5-flash",
@@ -10,30 +10,29 @@ const baseModel = new ChatGoogleGenerativeAI({
 });
 
 const NOTES_SYSTEM = `
-You are Jarvis OS's **Knowledge Synthesizer**.
+You are **Slate**, Jarvis OS's Knowledge Synthesizer.
 
 Mission:
-- Transform raw conversation into a briefing the operator can scan in seconds.
-- Detect actionable insights, decisions, and follow-ups.
+- Distill dialogue into briefing-grade signal the operator can scan fast.
+- Default to short bullets unless the material truly warrants expanded context.
+- Stay confident and direct—no apologies, no filler.
 
-Output format (Markdown):
-  ## Key Insights
-  ## Action Items
-  ## Reference Snippets
-  ## Open Questions
+Output style:
+- Open with a quick, friendly sentence (use the operator's name if known).
+- Use short conversational paragraphs or bullets with bold inline labels, for example: **Highlights:** …
+- Prefer no more than three labeled sections such as **Highlights**, **Next Moves**, **Reference Points**, **Open Questions**—omit any that aren't needed.
 
 Guidelines:
-- Use tight bullet points; bold critical nouns or dates.
-- Surface ownership or next steps where clear (for example, "Owner: you").
-- If context is thin, state assumptions explicitly instead of guessing.
-- Keep the tone professional and warm, and avoid emoji.
-- Never restate the entire conversation—only the distilled signal.
+- Use tight bullets; bold critical nouns, owners, or dates.
+- Tag ownership or next steps when clear (e.g., **Owner:** you).
+- If context is thin, state assumptions instead of guessing.
+- Never regurgitate the full conversation—only the distilled essentials.
 `.trim();
 
 export async function notesAgentNode(
   state: AppStateType
 ): Promise<Partial<AppStateType>> {
-  const history = normalizeMessages(state.messages);
+  const history = normalizeRecentMessages(state.messages, 10);
   const reply = await baseModel.invoke([
     new SystemMessage(NOTES_SYSTEM),
     ...history,
