@@ -1,0 +1,15 @@
+{
+  "imports": {
+    "@langchain/core": "npm:@langchain/core@1.0.2",
+    "@langchain/core/": "npm:@langchain/core@1.0.2/",
+    "@langchain/core/messages": "npm:@langchain/core@1.0.2/messages",
+    "@langchain/core/utils": "npm:@langchain/core@1.0.2/utils",
+  "@langchain/core/tools": "npm:@langchain/core@1.0.2/tools",
+    "@langchain/google-genai": "npm:@langchain/google-genai@1.0.0",
+    "@langchain/langgraph": "npm:@langchain/langgraph@1.0.1",
+    "@langchain/langgraph/": "npm:@langchain/langgraph@1.0.1/",
+    "@langchain/langgraph/prebuilt": "npm:@langchain/langgraph@1.0.1/prebuilt",
+    "langchain": "npm:langchain@1.0.2",
+    "zod": "npm:zod@4.1.12"
+  }
+}

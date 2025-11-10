@@ -1,5 +1,4 @@
 // src/graph.ts
-import "dotenv/config";
 import { z } from "zod";
 import {
   StateGraph,
@@ -9,8 +8,8 @@ import {
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { AppState, AppStateType } from "./state";
-import { normalizeMessages } from "./utils/messages";
+import { AppState, AppStateType } from "./state.ts";
+import { normalizeMessages } from "./utils/messages.ts";
 
 // Tool
 const add = tool(

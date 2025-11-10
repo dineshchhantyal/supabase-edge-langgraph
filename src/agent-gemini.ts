@@ -1,15 +1,8 @@
-// src/agent-gemini.ts
-import { HumanMessage } from "@langchain/core/messages";
-import { graph } from "./graph";
+import { runAgent } from "./runAgent";
 
 async function main() {
-  const userInput =
-    process.argv.slice(2).join(" ") || "Add 12 and 7 and explain";
-
-  const finalState = await graph.invoke({
-    messages: [new HumanMessage(userInput)],
-  });
-
+  const userInput = process.argv.slice(2).join(" ") || "Add 12 and 7 and explain";
+  const finalState = await runAgent(userInput);
   console.log(finalState.messages);
 }
 
