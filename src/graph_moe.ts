@@ -66,7 +66,7 @@ export const moeGraph = new StateGraph(AppState)
   ])
   .addEdge("todo_tools", "todo_agent")
   .addEdge("web_tools", "web_agent")
-  .addEdge("core_agent", "router")
+  .addEdge("core_agent", END)
   .addEdge("notes_agent", "router")
   .addEdge("finance_agent", "router")
   .compile({

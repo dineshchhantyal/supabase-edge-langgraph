@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LangLLM Playground</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <header>
+        <h1>LangLLM Playground</h1>
+        <p>Test the Supabase edge chat function with live token streaming.</p>
+      </header>
+      <form id="config-form" class="config">
+        <label>
+          Edge Function URL
+          <input id="endpoint" name="endpoint" type="url" required />
+        </label>
+        <label>
+          Supabase Key (anon or service)
+          <input id="apiKey" name="apiKey" type="password" placeholder="Optional" autocomplete="off" />
+        </label>
+        <label>
+          Default Prompt Seed
+          <textarea id="seed" name="seed" rows="3" placeholder="Optional system guidance"></textarea>
+        </label>
+        <div class="controls">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="clear-storage" class="ghost">Reset</button>
+        </div>
+      </form>
+      <section class="activity">
+        <h2>Run Activity</h2>
+        <div id="events" class="event-feed"></div>
+      </section>
+    </aside>
+
+    <main class="chat-panel">
+      <section id="chat-feed" class="chat-feed"></section>
+      <form id="chat-form" class="composer">
+        <textarea id="message" name="message" rows="1" placeholder="Send a message..." required></textarea>
+        <div class="composer-actions">
+          <button type="button" id="cancel" class="ghost" disabled>Stop</button>
+          <button type="submit" id="send" class="primary">Send</button>
+        </div>
+      </form>
+    </main>
+  </div>
+
+  <template id="message-template">
+    <article class="chat-message">
+      <header class="chat-meta">
+        <span class="chat-role"></span>
+        <time class="chat-time"></time>
+      </header>
+      <div class="chat-content"></div>
+      <footer class="chat-footer"></footer>
+    </article>
+  </template>
+
+  <template id="event-template">
+    <div class="event-item">
+      <div class="event-header"></div>
+      <pre class="event-payload"></pre>
+    </div>
+  </template>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

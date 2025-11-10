@@ -35,6 +35,38 @@ Routing guidance:
 
 const ALL_AGENTS: AgentValue[] = ["core", "todo", "web", "notes", "finance"];
 
+const LIGHT_GREETING_PATTERNS = [
+  /^(hi|hey|hello|hiya|sup|yo)$/i,
+  /^(hi|hey|hello) there!?$/i,
+  /^(good (morning|afternoon|evening))$/i,
+  /^(howdy|greetings)$/i,
+  /^hey hey$/i,
+];
+
+const LIGHT_ACK_PATTERNS = [
+  /^(thanks|thank you|ty)$/i,
+  /^(appreciate it|much appreciated)$/i,
+  /^(sounds good|looks good)$/i,
+];
+
+function isSimpleSmallTalk(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  if (normalized.length > 48) return false;
+  if (/[?!.,]/.test(normalized) && normalized.length > 12) return false;
+  for (const pattern of LIGHT_GREETING_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return true;
+    }
+  }
+  for (const pattern of LIGHT_ACK_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function sanitizeAgentList(value: unknown): AgentValue[] {
   if (!Array.isArray(value)) {
     return [];
@@ -136,6 +168,14 @@ export async function routerNode(
   if (state.last_routed_message_id === messageKey) {
     return {
       selected_agent: null,
+    };
+  }
+
+  if (isSimpleSmallTalk(lastHumanText)) {
+    return {
+      selected_agent: "core",
+      pending_agents: [],
+      last_routed_message_id: messageKey,
     };
   }
 
