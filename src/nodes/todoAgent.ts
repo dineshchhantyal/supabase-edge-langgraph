@@ -8,6 +8,7 @@ import { normalizeRecentMessages, getMessageText } from "../utils/messages.ts";
 const todoModel = new ChatGoogleGenerativeAI({
   model: "gemini-2.5-flash",
   temperature: 0,
+  streaming: true,
 }).bindTools(todoTools);
 
 const TODO_SYSTEM = `

@@ -8,6 +8,7 @@ import { getSystemPrompt } from "../prompt.ts";
 const baseModel = new ChatGoogleGenerativeAI({
   model: "gemini-2.5-flash",
   temperature: 0,
+  streaming: true,
 });
 
 const DEFAULT_PROMPT = `You are a friendly, capable AI buddy. Be direct, helpful, and conversational. Default to short answers; expand only when useful.`;

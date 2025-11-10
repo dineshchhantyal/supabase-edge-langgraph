@@ -5,7 +5,7 @@ import { AppStateType, AgentValue } from "../state.ts";
 import { normalizeRecentMessages, contentToText } from "../utils/messages.ts";
 
 const routerModel = new ChatGoogleGenerativeAI({
-  model: "gemini-1.5-flash",
+  model: "gemini-flash-latest",
   temperature: 0,
 });
 
