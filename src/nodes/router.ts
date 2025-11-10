@@ -10,27 +10,29 @@ const routerModel = new ChatGoogleGenerativeAI({
 });
 
 const ROUTER_SYSTEM = `
-You are Jarvis OS's **Mission Router**.
+You are Jarvis OS's Mission Router.
 
-Analyze the latest human request and produce the optimal ordered set of agents to respond.
+Your job is to look at the latest human request and decide which agents should act, in what order.
 
-Return **only** a JSON array of agent ids, for example: ["todo", "web"].
+Return only a JSON array of agent ids, for example: ["core"] or ["web", "core"].
 
- Agent roster:
- - "core": Nova — answer directly with a concise conversational reply.
- - "todo": Task Orchestrator — manage and clarify task lists.
- - "web": Sentinel Analyst — fetch current market/news intel with citations.
+Agent roster:
+- "core": Nova — talk to the user. Answer directly, or ask clarifying questions if the request is underspecified.
+- "todo": Task Orchestrator — manage and clarify task lists.
+- "web": Sentinel Analyst — fetch current market or news information and provide citations.
 - "notes": Knowledge Synthesizer — summarize or document conversations.
 - "finance": Market Navigator — interpret market moves and financial concepts.
 
 Routing guidance:
-- Include every capability the user clearly requests; maintain order of operations.
-- Use "web" whenever the user needs current data, verification, or live info.
-- Pair "finance" with "web" if analysis depends on fresh market data.
-- Use "todo" for planning, follow-ups, reminders, or task changes.
+- If the request is simple and you can answer directly, return ["core"].
+- If the request needs clarifying questions before any tools, return ["core"].
+- If tools or specialists are clearly needed, put them before "core", for example ["web", "core"] or ["finance", "web", "core"].
+- Use "web" whenever the user needs current data, verification, or live information.
+- Pair "finance" with "web" if the analysis depends on fresh market data.
+- Use "todo" for planning, follow ups, reminders, or task changes.
 - Use "notes" for recaps, summaries, or documentation requests.
-- Default fallback: ["core"].
-- Avoid duplicates unless the user insists on revisiting the same agent.
+- Do not include the same agent twice.
+- If unsure, default to ["core"].
 `.trim();
 
 const ALL_AGENTS: AgentValue[] = ["core", "todo", "web", "notes", "finance"];
@@ -54,32 +56,23 @@ function isSimpleSmallTalk(text: string): boolean {
   if (!normalized) return false;
   if (normalized.length > 48) return false;
   if (/[?!.,]/.test(normalized) && normalized.length > 12) return false;
+
   for (const pattern of LIGHT_GREETING_PATTERNS) {
-    if (pattern.test(normalized)) {
-      return true;
-    }
+    if (pattern.test(normalized)) return true;
   }
   for (const pattern of LIGHT_ACK_PATTERNS) {
-    if (pattern.test(normalized)) {
-      return true;
-    }
+    if (pattern.test(normalized)) return true;
   }
   return false;
 }
 
 function sanitizeAgentList(value: unknown): AgentValue[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
+  if (!Array.isArray(value)) return [];
   const result: AgentValue[] = [];
   for (const item of value) {
-    if (typeof item !== "string") {
-      continue;
-    }
+    if (typeof item !== "string") continue;
     const match = ALL_AGENTS.find((agent) => agent === item);
-    if (match) {
-      result.push(match);
-    }
+    if (match) result.push(match);
   }
   return result;
 }
@@ -95,9 +88,7 @@ function parsePlan(text: string): AgentValue[] {
   if (Array.isArray(parsed)) {
     const ordered: AgentValue[] = [];
     for (const item of parsed) {
-      if (typeof item !== "string") {
-        continue;
-      }
+      if (typeof item !== "string") continue;
       const lower = item.trim().toLowerCase();
       const match = ALL_AGENTS.find((agent) => lower === agent);
       if (match && !ordered.includes(match)) {
@@ -123,7 +114,7 @@ function parsePlan(text: string): AgentValue[] {
 }
 
 function getLastHumanMessage(
-  messages: ReturnType<typeof normalizeRecentMessages>
+  messages: ReturnType<typeof normalizeRecentMessages>,
 ): { index: number; message: any } | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const candidate = messages[i];
@@ -139,11 +130,12 @@ function getLastHumanMessage(
 }
 
 export async function routerNode(
-  state: AppStateType
+  state: AppStateType,
 ): Promise<Partial<AppStateType>> {
   const messages = normalizeRecentMessages(state.messages, 6);
   const queue = sanitizeAgentList(state.pending_agents);
 
+  // If there is already a planned queue, just keep executing it
   if (queue.length > 0) {
     const [next, ...rest] = queue;
     return {
@@ -153,24 +145,24 @@ export async function routerNode(
   }
 
   const lastHumanEntry = getLastHumanMessage(messages);
-
   if (!lastHumanEntry) {
-    return {
-      selected_agent: null,
-    };
+    return { selected_agent: null };
   }
 
   const { index: lastHumanIndex, message: lastHuman } = lastHumanEntry;
   const lastHumanText = contentToText((lastHuman as any)?.content).trim();
+
+  // stable key for dedup
   const messageKey =
-    (lastHuman as any)?.id ?? `${lastHumanIndex}:${lastHumanText}`;
+    (lastHuman as any)?.id != null
+      ? String((lastHuman as any).id)
+      : `h${lastHumanIndex}`;
 
   if (state.last_routed_message_id === messageKey) {
-    return {
-      selected_agent: null,
-    };
+    return { selected_agent: null };
   }
 
+  // Optional: fast path for greetings and quick thanks
   if (isSimpleSmallTalk(lastHumanText)) {
     return {
       selected_agent: "core",
@@ -179,6 +171,7 @@ export async function routerNode(
     };
   }
 
+  // Always use the router model for real decisions
   const reply = await routerModel.invoke([
     new SystemMessage(ROUTER_SYSTEM),
     new HumanMessage(lastHumanText),

@@ -12,6 +12,7 @@
   "@langchain/community": "npm:@langchain/community@0.3.7",
   "@langchain/community/": "npm:@langchain/community@0.3.7/",
   "@langchain/community/tools/tavily_search": "npm:@langchain/community@0.3.7/tools/tavily_search",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.46.1",
     "langchain": "npm:langchain@1.0.2",
     "zod": "npm:zod@4.1.12"
   }

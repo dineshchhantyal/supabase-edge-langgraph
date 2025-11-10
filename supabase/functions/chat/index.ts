@@ -4,8 +4,13 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+import { AIMessage, HumanMessage } from "@langchain/core/messages";
 // IMPORTANT: include .ts and the right relative path
-import { streamAgentEvents } from "../../../src/runAgent.ts";
+import { streamAgentEvents, type AgentInvocationState } from "../../../src/runAgent.ts";
+import { createServiceClient } from "../../../src/server/supabaseClient.ts";
+import { loadMemoryContext } from "../../../src/server/memory.ts";
+import { insertChatMessage } from "../../../src/server/chatStore.ts";
+import { ensureUsageWithinLimits, applyUsageDelta, projectRemaining } from "../../../src/server/usage.ts";
 
 const encoder = new TextEncoder();
 
@@ -125,46 +130,146 @@ function extractChunkText(value: unknown): string {
 
   return "";
 }
+
+interface ChatRequestBody {
+  message?: string;
+  userId?: string;
+  channelId?: string;
+  goal?: string | null;
+}
+
+const JSON_HEADERS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+const SSE_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+function toNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function extractUsageStats(event: unknown) {
+  const candidate = event as Record<string, any> | null;
+  if (!candidate) return null;
+  const data = candidate.data ?? {};
+  const usage =
+    data?.output?.kwargs?.usage_metadata ??
+    data?.output?.usage_metadata ??
+    data?.kwargs?.usage_metadata ??
+    data?.usage_metadata ??
+    null;
+  if (!usage) return null;
+  const prompt = toNumber(usage.prompt_tokens ?? usage.input_tokens);
+  const completion = toNumber(usage.completion_tokens ?? usage.output_tokens);
+  const totalRaw = toNumber(usage.total_tokens);
+  return {
+    prompt,
+    completion,
+    total: totalRaw > 0 ? totalRaw : prompt + completion,
+  };
+}
+
 denoServe(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    // CORS preflight
     return new Response(null, {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization"
-      }
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
     });
   }
 
   if (req.method !== "POST") {
     return new Response(
-      JSON.stringify({ error: "Use POST with JSON body { message: string }" }),
+      JSON.stringify({ error: "Use POST with JSON body { message, userId, channelId }" }),
       {
         status: 405,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
+        headers: JSON_HEADERS,
       }
     );
   }
 
-  let body: { message?: string };
+  let body: ChatRequestBody;
 
   try {
     body = await req.json();
   } catch {
     return new Response(JSON.stringify({ error: "Invalid JSON" }), {
       status: 400,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
+      headers: JSON_HEADERS,
     });
   }
 
-  const userInput = (body.message ?? "").trim() || "Add 12 and 7 and explain";
+  const messageValue = typeof body.message === "string" ? body.message : "";
+  const userInput = messageValue.trim();
+  const normalizedInput = userInput || "Add 12 and 7 and explain";
+  const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+  const channelId = typeof body.channelId === "string" ? body.channelId.trim() : "";
+  const goalValue = typeof body.goal === "string" ? body.goal.trim() : undefined;
+
+  if (!userId || !channelId) {
+    return new Response(JSON.stringify({ error: "Missing userId or channelId" }), {
+      status: 400,
+      headers: JSON_HEADERS,
+    });
+  }
+
+  const supabase = createServiceClient();
+
+  const quotaStatus = await ensureUsageWithinLimits(supabase, userId);
+  if (!quotaStatus.allowed) {
+    return new Response(
+      JSON.stringify({ error: "quota_exceeded", period: quotaStatus.blockedPeriod ?? null }),
+      {
+        status: 429,
+        headers: JSON_HEADERS,
+      }
+    );
+  }
+
+  const memoryContext = await loadMemoryContext(supabase, {
+    userId,
+    channelId,
+  });
+
+  const historyMessages = memoryContext.history.map((entry) =>
+    entry.role === "assistant"
+      ? new AIMessage(entry.content)
+      : new HumanMessage(entry.content)
+  );
+
+  const runMessages = [...historyMessages, new HumanMessage(normalizedInput)];
+  const runState: AgentInvocationState = {
+    messages: runMessages,
+    userId,
+    channelId,
+  };
+  if (goalValue) {
+    runState.goal = goalValue;
+  }
+
+  await insertChatMessage(supabase, {
+    channelId,
+    senderId: userId,
+    content: normalizedInput,
+    role: "user",
+  });
 
   const abortController = new AbortController();
   if (req.signal?.aborted) {
@@ -176,6 +281,9 @@ denoServe(async (req: Request) => {
   }
 
   let cancelled = false;
+  const usageTotals = { prompt: 0, completion: 0, total: 0 };
+  const runStartedAt = Date.now();
+  let finalAssistantText = "";
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -198,7 +306,13 @@ denoServe(async (req: Request) => {
       };
 
       safeEnqueue(encoder.encode(`: connected\n\n`));
-      pushEvent("start", { input: userInput });
+      pushEvent("start", {
+        input: normalizedInput,
+        memory: {
+          summaries: memoryContext.summaries,
+          facts: memoryContext.facts,
+        },
+      });
 
       if (abortController.signal.aborted) {
         cancelled = true;
@@ -210,7 +324,7 @@ denoServe(async (req: Request) => {
       let rootRunId: string | null = null;
 
       try {
-        const events = streamAgentEvents(userInput, {
+        const events = streamAgentEvents(runState, {
           signal: abortController.signal,
         });
 
@@ -266,6 +380,13 @@ denoServe(async (req: Request) => {
               output: sanitizeValue(event.data?.output),
               input: sanitizeValue(event.data?.input),
             });
+
+            const usage = extractUsageStats(event);
+            if (usage) {
+              usageTotals.prompt += usage.prompt;
+              usageTotals.completion += usage.completion;
+              usageTotals.total += usage.total;
+            }
           }
         }
       } catch (err) {
@@ -278,25 +399,82 @@ denoServe(async (req: Request) => {
         }
       } finally {
         if (!cancelled) {
+          if (!finalAssistantText && rootRunId) {
+            const aggregate = aggregated.get(rootRunId);
+            finalAssistantText = aggregate?.text ?? "";
+          }
+
           const responses = Array.from(aggregated.entries()).map(([runId, info]) => ({
             runId,
             name: info.name,
             text: info.text,
           }));
 
-          if (finalState !== null || responses.length > 0) {
-            pushEvent("summary", {
-              input: userInput,
-              finalState: sanitizeValue(finalState),
-              responses,
-            });
-          }
+          const durationMs = Date.now() - runStartedAt;
+          const secondsActive = Math.max(1, Math.round(durationMs / 1000));
+          const totalTokens = usageTotals.total || usageTotals.prompt + usageTotals.completion;
+          const quotaAfter = projectRemaining(quotaStatus.snapshots, totalTokens);
 
+          const quotaBefore = Object.fromEntries(
+            Object.entries(quotaStatus.snapshots).map(([period, snapshot]) => [
+              period,
+              { used: snapshot.tokensUsed, limit: snapshot.limit },
+            ])
+          );
+
+          const summaryPayload = {
+            input: normalizedInput,
+            finalState: sanitizeValue(finalState),
+            responses,
+            usage: {
+              promptTokens: usageTotals.prompt,
+              completionTokens: usageTotals.completion,
+              totalTokens,
+              secondsActive,
+            },
+            quotaBefore,
+            quota: quotaAfter,
+            memory: {
+              summaries: memoryContext.summaries,
+              facts: memoryContext.facts,
+            },
+          };
+
+          pushEvent("summary", summaryPayload);
           pushEvent("done", null);
           try {
             controller.close();
           } catch {
             // ignore close errors
+          }
+
+          try {
+            if (finalAssistantText) {
+              await insertChatMessage(supabase, {
+                channelId,
+                senderId: userId,
+                content: finalAssistantText,
+                role: "assistant",
+              });
+            }
+          } catch (err) {
+            console.error("Failed to persist assistant message", err);
+          }
+
+          try {
+            await applyUsageDelta(supabase, userId, quotaStatus.snapshots, {
+              promptTokens: usageTotals.prompt,
+              completionTokens: usageTotals.completion,
+              totalTokens,
+              secondsActive,
+            });
+            for (const snapshot of Object.values(quotaStatus.snapshots)) {
+              snapshot.tokensUsed += totalTokens;
+              snapshot.secondsActive += secondsActive;
+              snapshot.runs += 1;
+            }
+          } catch (err) {
+            console.error("Failed to update usage ledgers", err);
           }
         }
       }
@@ -311,11 +489,6 @@ denoServe(async (req: Request) => {
   });
 
   return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*",
-    },
+    headers: SSE_HEADERS,
   });
 });

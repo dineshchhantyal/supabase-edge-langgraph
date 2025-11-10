@@ -1,11 +1,15 @@
 const STORAGE_KEY = "langllm-playground-settings";
 const DEFAULT_ENDPOINT = "https://uwxlqpnmdwtjcsiewupc.functions.supabase.co/chat";
+const DEFAULT_USER_ID = "fb390679-8ab1-417d-9e38-77e36c3afd60";
+const DEFAULT_CHANNEL_ID = "1e206ceb-b85e-4537-a99c-76f94c1ca373";
 
 const configForm = document.getElementById("config-form");
 const endpointInput = document.getElementById("endpoint");
 const apiKeyInput = document.getElementById("apiKey");
 const seedInput = document.getElementById("seed");
 const clearButton = document.getElementById("clear-storage");
+const userIdInput = document.getElementById("userId");
+const channelIdInput = document.getElementById("channelId");
 
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message");
@@ -93,9 +97,11 @@ function persistSettings(settings) {
 }
 
 function applySettings(settings) {
-  endpointInput.value = settings.endpoint ?? DEFAULT_ENDPOINT;
-  apiKeyInput.value = settings.apiKey ?? "";
-  seedInput.value = settings.seed ?? "";
+  if (endpointInput) endpointInput.value = settings.endpoint ?? DEFAULT_ENDPOINT;
+  if (apiKeyInput) apiKeyInput.value = settings.apiKey ?? "";
+  if (userIdInput) userIdInput.value = settings.userId ?? DEFAULT_USER_ID;
+  if (channelIdInput) channelIdInput.value = settings.channelId ?? DEFAULT_CHANNEL_ID;
+  if (seedInput) seedInput.value = settings.seed ?? "";
 }
 
 function initializeSettings() {
@@ -103,7 +109,11 @@ function initializeSettings() {
   if (saved) {
     applySettings(saved);
   } else {
-    applySettings({ endpoint: DEFAULT_ENDPOINT });
+    applySettings({
+      endpoint: DEFAULT_ENDPOINT,
+      userId: DEFAULT_USER_ID,
+      channelId: DEFAULT_CHANNEL_ID,
+    });
   }
 }
 
@@ -114,7 +124,6 @@ function formatTime(date) {
     second: "2-digit",
   }).format(date);
 }
-
 function formatDuration(durationMs) {
   if (!Number.isFinite(durationMs) || durationMs < 0) return "";
   if (durationMs < 1000) {
@@ -216,10 +225,14 @@ function abbreviate(text, max = 220) {
   if (!text) return "";
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= max) return normalized;
-  return `${normalized.slice(0, max - 1)}…`;
+  applySettings({ endpoint: DEFAULT_ENDPOINT, apiKey: "", userId: DEFAULT_USER_ID, channelId: DEFAULT_CHANNEL_ID, seed: "" });
 }
 
 function isRoutingDirectiveText(text) {
+  if (typeof text !== "string") {
+    console.log("[isRoutingDirectiveText] Input is not a string:", typeof text, text);
+    return false;
+  }
   const trimmed = text.trim();
   if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return false;
   try {
@@ -329,52 +342,58 @@ function extractPayloadSnippet(payload) {
   }
 
   function recordTimeline(tracker, eventName, payload) {
-    if (!tracker || !payload || typeof payload !== "object") return;
-    if (!TIMELINE_EVENTS.has(eventName)) return;
+    try {
+      if (!tracker || !payload || typeof payload !== "object") return;
+      if (!TIMELINE_EVENTS.has(eventName)) return;
 
-    const metadata = payload.metadata ?? {};
-    let node = metadata.langgraph_node ?? payload.name ?? eventName;
-    if (typeof node !== "string") node = String(node ?? "").trim();
-    if (!node) node = eventName;
+      const metadata = payload.metadata ?? {};
+      let node = metadata.langgraph_node ?? payload.name ?? eventName;
+      if (typeof node !== "string") node = String(node ?? "").trim();
+      if (!node) node = eventName;
 
-    if (shouldSkipTimelineEntry(eventName, node)) return;
+      if (shouldSkipTimelineEntry(eventName, node)) return;
 
-    const rawStep = metadata.langgraph_step;
-    const step = Number.isFinite(Number(rawStep)) ? Number(rawStep) : null;
+      const rawStep = metadata.langgraph_step;
+      const step = Number.isFinite(Number(rawStep)) ? Number(rawStep) : null;
 
-    let snippet = extractPayloadSnippet(payload).trim();
-    if (isRoutingDirectiveText(snippet)) {
-      snippet = "";
+      console.log(`[recordTimeline] Before extractPayloadSnippet:`, payload);
+      let snippet = extractPayloadSnippet(payload).trim();
+      console.log(`[recordTimeline] After extractPayloadSnippet:`, snippet);
+      if (isRoutingDirectiveText(snippet)) {
+        snippet = "";
+      }
+
+      const key = `${eventName}|${node}|${step ?? ""}`;
+      if (!tracker.timelineByKey) {
+        tracker.timelineByKey = new Map();
+      }
+
+      const elapsed = timelineElapsed(tracker);
+
+      const existing = tracker.timelineByKey.get(key);
+      if (existing) {
+        if (!existing.snippet && snippet) existing.snippet = snippet;
+        if (Number.isFinite(elapsed)) existing.elapsed = elapsed;
+        return;
+      }
+
+      const entry = {
+        key,
+        event: eventName,
+        eventLabel: timelineEventLabel(eventName),
+        node,
+        nodeLabel: formatNodeLabel(node),
+        step,
+        snippet,
+        phase: computeTimelinePhase(eventName),
+        elapsed,
+      };
+
+      tracker.timelineByKey.set(key, entry);
+      tracker.timeline.push(entry);
+    } catch (err) {
+      console.error("[recordTimeline] Error:", err);
     }
-
-    const key = `${eventName}|${node}|${step ?? ""}`;
-    if (!tracker.timelineByKey) {
-      tracker.timelineByKey = new Map();
-    }
-
-    const elapsed = timelineElapsed(tracker);
-
-    const existing = tracker.timelineByKey.get(key);
-    if (existing) {
-      if (!existing.snippet && snippet) existing.snippet = snippet;
-      if (Number.isFinite(elapsed)) existing.elapsed = elapsed;
-      return;
-    }
-
-    const entry = {
-      key,
-      event: eventName,
-      eventLabel: timelineEventLabel(eventName),
-      node,
-      nodeLabel: formatNodeLabel(node),
-      step,
-      snippet,
-      phase: computeTimelinePhase(eventName),
-      elapsed,
-    };
-
-    tracker.timelineByKey.set(key, entry);
-    tracker.timeline.push(entry);
   }
 function setMessageContent(messageRef, text, options = {}) {
   const { markdown = false } = options;
@@ -614,6 +633,7 @@ function attachRunDetails(messageRef, tracker, summaryPayload) {
   }
 
   if (summaryPayload?.responses && Array.isArray(summaryPayload.responses) && summaryPayload.responses.length) {
+    console.log("[attachRunDetails] Processing responses:", summaryPayload.responses.length);
     const responsesPanel = document.createElement("details");
     responsesPanel.className = "run-responses";
     const summaryEl = document.createElement("summary");
@@ -624,52 +644,66 @@ function attachRunDetails(messageRef, tracker, summaryPayload) {
     list.className = "run-agent-list";
 
     summaryPayload.responses.forEach((response, idx) => {
-      if (!response) return;
-      const card = document.createElement("article");
-      card.className = "run-agent-card";
-
-      const header = document.createElement("header");
-      header.className = "run-agent-card-header";
-      const title = document.createElement("span");
-      title.className = "run-agent-title";
-      title.textContent = response.name ?? response.agent ?? `Response ${idx + 1}`;
-      header.appendChild(title);
-
-      const tokenMeta =
-        response.usage_metadata ??
-        response.meta?.usage_metadata ??
-        response.output?.usage_metadata ??
-        response.output?.kwargs?.usage_metadata ??
-        null;
-      if (tokenMeta) {
-        const meta = document.createElement("span");
-        meta.className = "run-agent-meta";
-        const prompt = toNumber(tokenMeta.prompt_tokens ?? tokenMeta.input_tokens);
-        const completion = toNumber(tokenMeta.completion_tokens ?? tokenMeta.output_tokens);
-        const total = toNumber(tokenMeta.total_tokens);
-        const parts = [];
-        if (prompt) parts.push(`prompt ${prompt}`);
-        if (completion) parts.push(`completion ${completion}`);
-        if (total) parts.push(`total ${total}`);
-        meta.textContent = parts.length ? `Tokens: ${parts.join(" · ")}` : "";
-        if (meta.textContent) {
-          header.appendChild(meta);
+      try {
+        console.log(`[attachRunDetails] Processing response ${idx}:`, response);
+        if (!response) {
+          console.log(`[attachRunDetails] Skipping null response at ${idx}`);
+          return;
         }
+        const card = document.createElement("article");
+        card.className = "run-agent-card";
+
+        const header = document.createElement("header");
+        header.className = "run-agent-card-header";
+        const title = document.createElement("span");
+        title.className = "run-agent-title";
+        title.textContent = response.name ?? response.agent ?? `Response ${idx + 1}`;
+        header.appendChild(title);
+
+        const tokenMeta =
+          response.usage_metadata ??
+          response.meta?.usage_metadata ??
+          response.output?.usage_metadata ??
+          response.output?.kwargs?.usage_metadata ??
+          null;
+        if (tokenMeta) {
+          const meta = document.createElement("span");
+          meta.className = "run-agent-meta";
+          const prompt = toNumber(tokenMeta.prompt_tokens ?? tokenMeta.input_tokens);
+          const completion = toNumber(tokenMeta.completion_tokens ?? tokenMeta.output_tokens);
+          const total = toNumber(tokenMeta.total_tokens);
+          const parts = [];
+          if (prompt) parts.push(`prompt ${prompt}`);
+          if (completion) parts.push(`completion ${completion}`);
+          if (total) parts.push(`total ${total}`);
+          meta.textContent = parts.length ? `Tokens: ${parts.join(" · ")}` : "";
+          if (meta.textContent) {
+            header.appendChild(meta);
+          }
+        }
+
+        card.appendChild(header);
+
+        const body = document.createElement("div");
+        body.className = "run-agent-body";
+        console.log(`[attachRunDetails] Response text type: ${typeof response.text}, value:`, response.text);
+        const text = typeof response.text === "string" ? response.text.trim() : "";
+        if (text) {
+          try {
+            body.innerHTML = renderMarkdown(text);
+          } catch (mdError) {
+            console.error(`[attachRunDetails] Markdown render error:`, mdError);
+            body.textContent = text;
+          }
+        } else {
+          body.textContent = JSON.stringify(response, null, 2);
+        }
+        card.appendChild(body);
+
+        list.appendChild(card);
+      } catch (itemError) {
+        console.error(`[attachRunDetails] Error processing response ${idx}:`, itemError);
       }
-
-      card.appendChild(header);
-
-      const body = document.createElement("div");
-      body.className = "run-agent-body";
-      const text = typeof response.text === "string" ? response.text.trim() : "";
-      if (text) {
-        body.innerHTML = renderMarkdown(text);
-      } else {
-        body.textContent = JSON.stringify(response, null, 2);
-      }
-      card.appendChild(body);
-
-      list.appendChild(card);
     });
 
     responsesPanel.appendChild(list);
@@ -678,24 +712,39 @@ function attachRunDetails(messageRef, tracker, summaryPayload) {
 }
 
 function extractSummaryText(summaryPayload) {
-  if (!summaryPayload?.responses || !Array.isArray(summaryPayload.responses)) return "";
+  console.log("[extractSummaryText] Input:", summaryPayload);
+  if (!summaryPayload?.responses || !Array.isArray(summaryPayload.responses)) {
+    console.log("[extractSummaryText] No responses array");
+    return "";
+  }
   const seen = new Set();
   const parts = [];
   for (const response of summaryPayload.responses) {
-    if (!response || typeof response.text !== "string") continue;
+    console.log("[extractSummaryText] Processing response:", response);
+    if (!response || typeof response.text !== "string") {
+      console.log("[extractSummaryText] Skipping response - not a string or missing");
+      continue;
+    }
     const text = response.text.trim();
-    if (!text || seen.has(text)) continue;
-    if (isRoutingDirectiveText(text)) continue;
+    if (!text || seen.has(text)) {
+      console.log("[extractSummaryText] Skipping empty or duplicate text");
+      continue;
+    }
+    if (isRoutingDirectiveText(text)) {
+      console.log("[extractSummaryText] Skipping routing directive");
+      continue;
+    }
     seen.add(text);
     parts.push(text);
   }
+  console.log("[extractSummaryText] Final parts:", parts);
   return parts.join("\n\n");
 }
 
 function setRunState(isRunning) {
-  sendButton.disabled = isRunning;
-  cancelButton.disabled = !isRunning;
-  messageInput.disabled = isRunning;
+  if (sendButton) sendButton.disabled = isRunning;
+  if (cancelButton) cancelButton.disabled = !isRunning;
+  if (messageInput) messageInput.disabled = isRunning;
 }
 
 async function* parseSSE(stream) {
@@ -737,7 +786,7 @@ async function* parseSSE(stream) {
   }
 }
 
-async function streamResponse(endpoint, key, message, seed) {
+async function streamResponse(endpoint, key, message, seed, userId, channelId) {
   const abortController = new AbortController();
   activeRun = { abortController };
   setRunState(true);
@@ -746,11 +795,16 @@ async function streamResponse(endpoint, key, message, seed) {
   if (key) headers.Authorization = `Bearer ${key}`;
 
   const bodyMessage = seed ? `${seed}\n\n${message}` : message;
+  const payload = {
+    message: bodyMessage,
+    userId,
+    channelId,
+  };
 
   const response = await fetch(endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify({ message: bodyMessage }),
+    body: JSON.stringify(payload),
     signal: abortController.signal,
   });
 
@@ -765,22 +819,33 @@ async function handleChatSubmit(event) {
   event.preventDefault();
   if (activeRun) return;
 
-  const endpoint = endpointInput.value.trim();
-  const apiKey = apiKeyInput.value.trim();
-  const seed = seedInput.value.trim();
-  const message = messageInput.value.trim();
+  if (!userIdInput || !channelIdInput) {
+    window.alert("Playground is missing the user/channel inputs. Refresh the page and try again.");
+    return;
+  }
+
+  const endpoint = (endpointInput?.value ?? "").trim();
+  const apiKey = (apiKeyInput?.value ?? "").trim();
+  const userId = (userIdInput?.value ?? "").trim();
+  const channelId = (channelIdInput?.value ?? "").trim();
+  const seed = (seedInput?.value ?? "").trim();
+  const message = (messageInput?.value ?? "").trim();
 
   if (!endpoint || !message) {
     return;
   }
 
-  const userMessage = createMessage("user");
-  setMessageContent(userMessage, message, { markdown: false });
+  if (!userId || !channelId) {
+    window.alert("Please configure a user ID and channel ID before chatting.");
+    return;
+  }
+
+  if (!userIdInput || !channelIdInput) {
+    window.alert("Playground is missing the user/channel inputs. Refresh the page and try again.");
+    return;
+  }
 
   const assistantMessage = createMessage("assistant");
-  setMessageContent(assistantMessage, "Thinking…", { markdown: false });
-  setFooterBadges(assistantMessage, ["streaming"]);
-
   messageInput.value = "";
   autoResize(messageInput);
 
@@ -789,45 +854,52 @@ async function handleChatSubmit(event) {
   let summaryPayload = null;
 
   try {
-    const { stream, abortController } = await streamResponse(endpoint, apiKey, message, seed);
+    const { stream, abortController } = await streamResponse(endpoint, apiKey, message, seed, userId, channelId);
     activeRun.abortController = abortController;
 
     for await (const { event: eventName, payload } of parseSSE(stream)) {
-      logEvent(eventName, payload);
-      recordTimeline(runTracker, eventName, payload);
+      try {
+        console.log(`[SSE Event] ${eventName}:`, payload);
+        logEvent(eventName, payload);
+        recordTimeline(runTracker, eventName, payload);
 
-      if (payload && typeof payload === "object") {
-        if (eventName === "node_start") {
-          recordStep(runTracker, payload);
-        } else if (eventName === "node_end") {
-          recordUsage(runTracker, payload);
+        if (payload && typeof payload === "object") {
+          if (eventName === "node_start") {
+            recordStep(runTracker, payload);
+          } else if (eventName === "node_end") {
+            recordUsage(runTracker, payload);
+          }
         }
-      }
 
-      if (eventName === "token" && typeof payload?.text === "string") {
-        assembledText += payload.text;
-        if (assembledText) {
-          setMessageContent(assistantMessage, assembledText, { markdown: true });
+        if (eventName === "token" && typeof payload?.text === "string") {
+          assembledText += payload.text;
+          if (assembledText) {
+            setMessageContent(assistantMessage, assembledText, { markdown: true });
+          }
         }
-      }
 
-      if (eventName === "error") {
-        const details = payload?.details ?? "Error";
-        setMessageContent(assistantMessage, details, { markdown: false });
-        setFooterBadges(assistantMessage, ["error"]);
-      }
-
-      if (eventName === "summary") {
-        summaryPayload = payload;
-        const summaryText = extractSummaryText(payload);
-        if (summaryText) {
-          assembledText = summaryText;
-          setMessageContent(assistantMessage, assembledText, { markdown: true });
+        if (eventName === "error") {
+          const details = payload?.details ?? "Error";
+          setMessageContent(assistantMessage, details, { markdown: false });
+          setFooterBadges(assistantMessage, ["error"]);
         }
-      }
 
-      if (eventName === "done") {
-        break;
+        if (eventName === "summary") {
+          summaryPayload = payload;
+          console.log("[Summary Payload]:", summaryPayload);
+          const summaryText = extractSummaryText(payload);
+          if (summaryText) {
+            assembledText = summaryText;
+            setMessageContent(assistantMessage, assembledText, { markdown: true });
+          }
+        }
+
+        if (eventName === "done") {
+          break;
+        }
+      } catch (eventError) {
+        console.error(`[Error processing ${eventName} event]:`, eventError);
+        throw eventError;
       }
     }
 
@@ -848,6 +920,7 @@ async function handleChatSubmit(event) {
       footerBadges.push(`Duration: ${formatDuration(runTracker.durationMs)}`);
     }
 
+    console.log("[Attaching run details] Track steps:", runTracker.steps.length, "Summary responses:", summaryPayload?.responses?.length);
     setFooterBadges(assistantMessage, footerBadges);
     attachRunDetails(assistantMessage, runTracker, summaryPayload);
 
@@ -860,19 +933,21 @@ async function handleChatSubmit(event) {
       });
     }
   } catch (error) {
+    console.error("[handleChatSubmit error]:", error);
+    console.error("[Error stack]:", error.stack);
     const isAbort = error.name === "AbortError";
     const errorText = isAbort ? "Cancelled" : error.message ?? String(error);
     setMessageContent(assistantMessage, errorText, { markdown: false });
     setFooterBadges(assistantMessage, [isAbort ? "cancelled" : "error"]);
-    logEvent("client_error", { message: errorText });
+    logEvent("client_error", { message: errorText, stack: error.stack });
   } finally {
     activeRun = null;
     setRunState(false);
-    messageInput.focus();
+    if (messageInput) {
+      messageInput.focus();
+    }
   }
-}
-
-function handleCancel() {
+}function handleCancel() {
   if (!activeRun || !activeRun.abortController) return;
   activeRun.abortController.abort();
   logEvent("cancel", { reason: "user" });
@@ -881,9 +956,11 @@ function handleCancel() {
 function handleConfigSubmit(event) {
   event.preventDefault();
   const settings = {
-    endpoint: endpointInput.value.trim(),
-    apiKey: apiKeyInput.value.trim(),
-    seed: seedInput.value.trim(),
+    endpoint: (endpointInput?.value ?? "").trim(),
+    apiKey: (apiKeyInput?.value ?? "").trim(),
+    userId: (userIdInput?.value ?? "").trim(),
+    channelId: (channelIdInput?.value ?? "").trim(),
+    seed: (seedInput?.value ?? "").trim(),
   };
   persistSettings(settings);
   logEvent("config_saved", { endpoint: settings.endpoint, hasKey: Boolean(settings.apiKey) });
@@ -891,15 +968,25 @@ function handleConfigSubmit(event) {
 
 function handleClearStorage() {
   localStorage.removeItem(STORAGE_KEY);
-  applySettings({ endpoint: DEFAULT_ENDPOINT, apiKey: "", seed: "" });
+  applySettings({
+    endpoint: DEFAULT_ENDPOINT,
+    apiKey: "",
+    userId: DEFAULT_USER_ID,
+    channelId: DEFAULT_CHANNEL_ID,
+    seed: "",
+  });
   logEvent("config_reset", {});
 }
 
 function initAutoResize() {
-  messageInput.addEventListener("input", () => autoResize(messageInput));
-  seedInput.addEventListener("input", () => autoResize(seedInput));
-  autoResize(messageInput);
-  autoResize(seedInput);
+  if (messageInput) {
+    messageInput.addEventListener("input", () => autoResize(messageInput));
+    autoResize(messageInput);
+  }
+  if (seedInput) {
+    seedInput.addEventListener("input", () => autoResize(seedInput));
+    autoResize(seedInput);
+  }
 }
 
 initializeSettings();
@@ -910,4 +997,6 @@ clearButton.addEventListener("click", handleClearStorage);
 chatForm.addEventListener("submit", handleChatSubmit);
 cancelButton.addEventListener("click", handleCancel);
 
-messageInput.focus();
+if (messageInput) {
+  messageInput.focus();
+}

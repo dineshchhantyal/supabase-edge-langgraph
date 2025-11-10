@@ -10,6 +10,7 @@ declare
   base_time timestamptz := now();
   summary_id uuid;
   fact_id uuid;
+  assistant_user_id uuid;
 begin
   -- Ensure pgcrypto extension for gen_random_uuid/crypt is available
   perform 1 from pg_extension where extname = 'pgcrypto';
@@ -56,6 +57,36 @@ begin
     returning id into demo_channel_id;
   end if;
 
+  -- Create or fetch an assistant identity for message storage.
+  select id into assistant_user_id from auth.users where email = 'assistant@example.com';
+  if assistant_user_id is null then
+    insert into auth.users (
+      id,
+      email,
+      raw_app_meta_data,
+      raw_user_meta_data,
+      aud,
+      role,
+      encrypted_password,
+      email_confirmed_at,
+      created_at,
+      updated_at
+    )
+    values (
+      gen_random_uuid(),
+      'assistant@example.com',
+      jsonb_build_object('provider', 'email', 'providers', to_jsonb(array['email'])),
+      jsonb_build_object('display_name', 'LangLLM Assistant'),
+      'authenticated',
+      'authenticated',
+      crypt('AssistantPass123!', gen_salt('bf')),
+      base_time,
+      base_time,
+      base_time
+    )
+    returning id into assistant_user_id;
+  end if;
+
   -- Ensure the user profile exists.
   insert into public.user_profiles (
     id,
@@ -91,7 +122,8 @@ begin
       sender_id,
       content,
       created_at,
-      expires_at
+      expires_at,
+      sources
     )
     values
       (
@@ -100,15 +132,26 @@ begin
         demo_user_id,
         'Hey Jarvis, give me a quick update on the Nepal cabinet.',
         base_time - interval '5 minutes',
-        base_time + interval '30 days'
+        base_time + interval '30 days',
+        jsonb_build_object('role', 'user')
+      ),
+      (
+        gen_random_uuid(),
+        demo_channel_id,
+        assistant_user_id,
+        'Sure thing! Nepal''s interim cabinet is still being finalized; expect an outline later today.',
+        base_time - interval '4 minutes',
+        base_time + interval '30 days',
+        jsonb_build_object('role', 'assistant')
       ),
       (
         gen_random_uuid(),
         demo_channel_id,
         demo_user_id,
         'Thanks, that helps! Can you remind me tomorrow?',
-        base_time - interval '4 minutes',
-        base_time + interval '30 days'
+        base_time - interval '3 minutes',
+        base_time + interval '30 days',
+        jsonb_build_object('role', 'user')
       );
   end if;
 

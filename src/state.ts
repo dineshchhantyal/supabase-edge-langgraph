@@ -35,6 +35,16 @@ export const AppState = Annotation.Root({
       typeof update === "undefined" ? previous : update ?? null,
     default: () => null,
   }),
+  user_id: Annotation<string | null>({
+    reducer: (previous, update) =>
+      typeof update === "undefined" ? previous : update ?? previous ?? null,
+    default: () => null,
+  }),
+  channel_id: Annotation<string | null>({
+    reducer: (previous, update) =>
+      typeof update === "undefined" ? previous : update ?? previous ?? null,
+    default: () => null,
+  }),
 });
 
 export type AppStateType = typeof AppState.State;

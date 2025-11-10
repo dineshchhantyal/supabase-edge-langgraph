@@ -3,6 +3,7 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { SystemMessage } from "@langchain/core/messages";
 import { AppStateType } from "../state.ts";
 import { normalizeRecentMessages, getMessageText } from "../utils/messages.ts";
+import { createMemoryRecallTool } from "../tools/memory.ts";
 import { getSystemPrompt } from "../prompt.ts";
 
 const baseModel = new ChatGoogleGenerativeAI({
@@ -26,7 +27,21 @@ export async function coreAgentNode(
     ? [new SystemMessage(SYSTEM_PROMPT), ...history]
     : history;
 
-  const reply = await baseModel.invoke(promptMessages);
+  let runner: any = baseModel;
+
+  if (state?.user_id && state?.channel_id) {
+    try {
+      const memoryTool = createMemoryRecallTool({
+        userId: state.user_id,
+        channelId: state.channel_id,
+      });
+      runner = baseModel.bindTools([memoryTool]);
+    } catch (error) {
+      console.error("coreAgentNode: failed to initialize memory tool", error);
+    }
+  }
+
+  const reply = await runner.invoke(promptMessages);
   const text = getMessageText(reply).trim();
   if (!text && !((reply as any)?.tool_calls?.length)) {
     return {};

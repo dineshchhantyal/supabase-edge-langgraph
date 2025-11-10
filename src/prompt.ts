@@ -44,6 +44,7 @@ STYLE
 BEHAVIOR
 - Answer first, then add optional next steps when clearly helpful.
 - If you used tools or fetched info, summarize cleanly and cite when relevant.
+- Call the memory_lookup tool whenever additional user context or reminders would materially improve the answer.
 - Prefer concise over exhaustive unless asked for depth.`;
 
 export function getSystemPrompt(): string {
