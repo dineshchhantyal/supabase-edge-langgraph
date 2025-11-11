@@ -21,6 +21,10 @@ const eventsFeed = document.getElementById("events");
 const messageTemplate = document.getElementById("message-template");
 const eventTemplate = document.getElementById("event-template");
 
+console.log("[init] messageTemplate:", messageTemplate);
+console.log("[init] chatFeed:", chatFeed);
+console.log("[init] eventTemplate:", eventTemplate);
+
 const decoder = new TextDecoder();
 let activeRun = null;
 
@@ -421,25 +425,51 @@ function setFooterBadges(messageRef, items = []) {
 }
 
 function createMessage(role) {
+  console.log(`[createMessage] Creating message for role: ${role}`);
+  if (!messageTemplate) {
+    console.error("[createMessage] messageTemplate is null!");
+    return null;
+  }
+  if (!chatFeed) {
+    console.error("[createMessage] chatFeed is null!");
+    return null;
+  }
+  
   const fragment = messageTemplate.content.cloneNode(true);
   const root = fragment.querySelector(".chat-message");
+  if (!root) {
+    console.error("[createMessage] Could not find .chat-message in template");
+    return null;
+  }
+  console.log(`[createMessage] Root element:`, root);
   root.classList.add(role === "user" ? "user" : "assistant");
 
   const roleEl = root.querySelector(".chat-role");
-  roleEl.textContent = role === "user" ? "You" : "Assistant";
+  if (roleEl) roleEl.textContent = role === "user" ? "You" : "Assistant";
 
   const timeEl = root.querySelector(".chat-time");
-  timeEl.textContent = formatTime(new Date());
+  if (timeEl) timeEl.textContent = formatTime(new Date());
 
   const contentEl = root.querySelector(".chat-content");
-  contentEl.textContent = role === "assistant" ? "…" : "";
+  if (contentEl) contentEl.textContent = role === "assistant" ? "…" : "";
+  console.log(`[createMessage] Content element text:`, contentEl?.textContent);
 
   const footerEl = root.querySelector(".chat-footer");
   const messageRef = { root, contentEl, footerEl, timeEl };
   setFooterBadges(messageRef, []);
 
-  chatFeed.appendChild(fragment);
-  chatFeed.scrollTop = chatFeed.scrollHeight;
+  console.log(`[createMessage] About to append (chatFeed children before: ${chatFeed.children.length})`);
+  console.log(`[createMessage] Fragment has ${fragment.children.length} children`);
+  
+  const newNode = chatFeed.appendChild(fragment);
+  console.log(`[createMessage] After appendChild, new node:`, newNode);
+  console.log(`[createMessage] chatFeed now has ${chatFeed.children.length} children`);
+  
+  // Force scroll with a small delay to ensure DOM has updated
+  setTimeout(() => {
+    chatFeed.scrollTop = chatFeed.scrollHeight;
+    console.log(`[createMessage] Scrolled to bottom (scrollTop: ${chatFeed.scrollTop}, scrollHeight: ${chatFeed.scrollHeight})`);
+  }, 0);
 
   return messageRef;
 }
@@ -845,6 +875,12 @@ async function handleChatSubmit(event) {
     return;
   }
 
+  console.log(`[handleChatSubmit] Creating user message with text: "${message}"`);
+  const userMessage = createMessage("user");
+  console.log(`[handleChatSubmit] Setting user message content`);
+  userMessage.contentEl.textContent = message;
+  console.log(`[handleChatSubmit] User message content set to: "${userMessage.contentEl.textContent}"`);
+  
   const assistantMessage = createMessage("assistant");
   messageInput.value = "";
   autoResize(messageInput);
